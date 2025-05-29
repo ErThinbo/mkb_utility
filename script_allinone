@@ -1,0 +1,43 @@
+#!/bin/bash
+
+if [ -z "$1" ]; then
+  echo "Usage: $0 domain.com"
+  exit 1
+fi
+
+DOMAIN=$1
+OUTPUT_FILE="all_subdomains.txt"
+TMP_FILE=$(mktemp)
+
+echo "[*] Gathering subdomains for $DOMAIN..."
+
+# === crt.sh ===
+echo "[*] Fetching from crt.sh..."
+curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" |
+  jq -r '.[].name_value' 2>/dev/null |
+  sed 's/\*\.//g' >> "$TMP_FILE"
+
+# === AlienVault ===
+echo "[*] Fetching from AlienVault OTX..."
+curl -s "https://otx.alienvault.com/api/v1/indicators/hostname/$DOMAIN/passive_dns" |
+  jq -r '.passive_dns[]?.hostname' 2>/dev/null |
+  grep -E "^[a-zA-Z0-9.-]+\.${DOMAIN//./\\.}$" >> "$TMP_FILE"
+
+# === urlscan.io ===
+echo "[*] Fetching from urlscan.io..."
+curl -s "https://urlscan.io/api/v1/search/?q=domain:$DOMAIN&size=10000" |
+  jq -r '.results[]?.page?.domain' 2>/dev/null |
+  grep -E "^[a-zA-Z0-9._-]+\.${DOMAIN//./\\.}$" >> "$TMP_FILE"
+
+# === web.archive.org ===
+echo "[*] Fetching from web.archive.org..."
+curl -s "http://web.archive.org/cdx/search/cdx?url=*.$DOMAIN/*&output=json&collapse=urlkey" |
+  jq -r '.[1:][] | .[2]' 2>/dev/null |
+  grep -Eo "([a-zA-Z0-9._-]+\.)?$DOMAIN" >> "$TMP_FILE"
+
+# === Final Output ===
+echo "[*] Consolidating and deduplicating results..."
+sort -u "$TMP_FILE" > "$OUTPUT_FILE"
+rm "$TMP_FILE"
+
+echo "[+] Subdomain enumeration complete. Results saved to $OUTPUT_FILE"
