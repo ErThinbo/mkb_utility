@@ -1,0 +1,61 @@
+function mkb() {
+  mkdir -p "./$1"/{nmap,content,exploits,scripts}
+  cd "./$1" || return
+
+  # Script 1: get_subdomains.sh
+  cat > scripts/get_subdomains.sh << 'EOF'
+#!/bin/bash
+if [ -z "$1" ]; then
+  echo "Uso: $0 dominio.com"
+  exit 1
+fi
+curl -s "https://crt.sh/?q=%25.$1&output=json" | jq -r '.[].name_value' | sed 's/\*\.//' | sort -u | anew crtsh_subs.txt
+EOF
+
+  # Script 2: alienvault_subs.sh
+  cat > scripts/alienvault_subs.sh << 'EOF'
+#!/bin/bash
+if [ -z "$1" ]; then
+  echo "Uso: $0 dominio.com"
+  exit 1
+fi
+curl -s "https://otx.alienvault.com/api/v1/indicators/hostname/$1/passive_dns" \
+| jq -r '.passive_dns[]?.hostname' \
+| grep -E "^[a-zA-Z0-9.-]+\\.$1$" \
+| sort -u \
+| anew alienvault_subs.txt
+EOF
+
+  # Script 3: urlscan_subs.sh
+  cat > scripts/urlscan_subs.sh << 'EOF'
+#!/bin/bash
+if [ -z "$1" ]; then
+  echo "Uso: $0 dominio.com"
+  exit 1
+fi
+curl -s "https://urlscan.io/api/v1/search/?q=domain:$1&size=10000" \
+| jq -r '.results[]?.page?.domain' \
+| grep -E "([a-zA-Z0-9._-]+\\.)?$1" \
+| sort -u \
+| anew urlscan_subs.txt
+EOF
+
+  # Script 4: webarchive_subs.sh
+  cat > scripts/webarchive_subs.sh << 'EOF'
+#!/bin/bash
+if [ -z "$1" ]; then
+  echo "Uso: $0 dominio.com"
+  exit 1
+fi
+curl -s "http://web.archive.org/cdx/search/cdx?url=*${1}/*&output=json&collapse=urlkey" \
+| jq -r '.[1:][] | .[2]' \
+| grep -Eo "([a-zA-Z0-9._-]+\\.)?$1" \
+| sort -u \
+| anew webarchive_subs.txt
+EOF
+
+  # Dar permisos de ejecución
+  chmod +x scripts/*.sh
+
+  echo "[+] Carpeta '$1' creada con subdirectorios y scripts listos para usar."
+}
